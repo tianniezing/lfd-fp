@@ -8,7 +8,7 @@
 module load CUDA/11.7.0
 module load Boost/1.79.0-GCC-11.3.0
 
-source $HOME/venvs/lfd3_env/bin/activate
+source $HOME/venvs/lfd_fp_env/bin/activate
 
 # Define parameter arrays (10 configurations)
 learning_rates=(0.003 0.003 0.003 0.010 0.003 0.003 0.003 0.003 0.003 0.003)
@@ -35,7 +35,7 @@ bidir=${bidirectional[$SLURM_ARRAY_TASK_ID]}
 echo "Starting job $SLURM_ARRAY_TASK_ID with:"
 echo "lr=$lr, optimizer=$optimizer, batch_size=$batch_size, loss=$loss, dropout=$dropout, rec_dropout=$rec_dropout, units=$units, layers=$layers, bidirectional=$bidir"
 
-$HOME/venvs/lfd3_env/bin/python ./lfd_assignment3_lstm.py \
+$HOME/venvs/lfd3_env/bin/python ./lfd_fp_lstm.py \
     --learning_rate $lr \
     --loss_function $loss \
     --optimizer $optimizer \
