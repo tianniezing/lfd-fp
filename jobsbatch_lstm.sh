@@ -1,53 +1,99 @@
 #!/bin/bash
 #SBATCH --time=00:30:00
-#SBATCH --partition=regular
-#SBATCH --mem=2000
-#SBATCH --array=0-9
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu:1
+#SBATCH --mem=8G
+#SBATCH --array=0-127%15 # 128 jobs (8x2x2x2x2), max 15 run at once
 #SBATCH --output=output2/slurm-%A_%a.out
 
 module load CUDA/11.7.0
+module load cuDNN/8.4.1.50-CUDA-11.7.0  # <-- ADD THIS LINE to load cuDNN
 module load Boost/1.79.0-GCC-11.3.0
 
-source $HOME/venvs/lfd_fp_env/bin/activate
+source $HOME/venvs/lfd3/bin/activate
 
-# Define parameter arrays (10 configurations)
-learning_rates=(0.003 0.003 0.003 0.010 0.003 0.003 0.003 0.003 0.003 0.003)
-optimizers=("Adam" "RMSprop" "RMSprop" "Adam" "Adam" "RMSprop" "Adam" "Adam" "Adam" "RMSprop")
-batch_sizes=(64 32 16 64 16 32 16 64 64 16)
-losses=("categorical_crossentropy" "categorical_crossentropy" "categorical_crossentropy" "categorical_crossentropy" "categorical_crossentropy" "categorical_crossentropy" "categorical_crossentropy" "categorical_crossentropy" "categorical_crossentropy" "categorical_crossentropy")
-dropouts=(0.3 0.5 0.5 0.5 0.5 0.5 0.1 0.3 0.3 0.1)
-recurrent_dropouts=(0.3 0.1 0.3 0.1 0.1 0.3 0.1 0.1 0.1 0.3)
-lstm_units=(64 64 128 128 128 64 64 64 64 128)
-lstm_layers=(2 3 2 2 2 1 3 3 2 2)
-bidirectional=(True False True False False True False False False False)
+learning_rates=(0.003 0.001)
+optimizers=("Adam" "RMSprop")
+batch_sizes=(16 32)
+loss_functions=("binary_crossentropy")
+dropouts=(0.3 0.5)
+recurrent_dropouts=(0.1 0.3)
+lstm_units=(128)
+lstm_layers=(1 2)
+bidirectional_flags=(True False)
 
-# Select parameters for this job
-lr=${learning_rates[$SLURM_ARRAY_TASK_ID]}
-optimizer=${optimizers[$SLURM_ARRAY_TASK_ID]}
-batch_size=${batch_sizes[$SLURM_ARRAY_TASK_ID]}
-loss=${losses[$SLURM_ARRAY_TASK_ID]}
-dropout=${dropouts[$SLURM_ARRAY_TASK_ID]}
-rec_dropout=${recurrent_dropouts[$SLURM_ARRAY_TASK_ID]}
-units=${lstm_units[$SLURM_ARRAY_TASK_ID]}
-layers=${lstm_layers[$SLURM_ARRAY_TASK_ID]}
-bidir=${bidirectional[$SLURM_ARRAY_TASK_ID]}
+num_lr=${#learning_rates[@]}
+num_opt=${#optimizers[@]}
+num_bs=${#batch_sizes[@]}
+num_loss=${#loss_functions[@]}
+num_do=${#dropouts[@]}
+num_rdo=${#recurrent_dropouts[@]}
+num_units=${#lstm_units[@]}
+num_layers=${#lstm_layers[@]}
+num_bidir=${#bidirectional_flags[@]}
 
-echo "Starting job $SLURM_ARRAY_TASK_ID with:"
-echo "lr=$lr, optimizer=$optimizer, batch_size=$batch_size, loss=$loss, dropout=$dropout, rec_dropout=$rec_dropout, units=$units, layers=$layers, bidirectional=$bidir"
+total_jobs=$((num_lr * num_opt * num_bs * num_loss * num_do * num_rdo * num_units * num_layers * num_bidir))
+echo "TOTAL COMBINATIONS TO RUN: $total_jobs"
 
-$HOME/venvs/lfd3_env/bin/python ./lfd_fp_lstm.py \
+task_id=$SLURM_ARRAY_TASK_ID
+
+# Learning Rate
+lr_idx=$((task_id % num_lr))
+lr=${learning_rates[$lr_idx]}
+task_id=$((task_id / num_lr))
+
+# Optimizer
+opt_idx=$((task_id % num_opt))
+optimizer=${optimizers[$opt_idx]}
+task_id=$((task_id / num_opt))
+
+# Batch Size
+bs_idx=$((task_id % num_bs))
+batch_size=${batch_sizes[$bs_idx]}
+task_id=$((task_id / num_bs))
+
+loss_idx=$((task_id % num_loss))
+loss=${loss_functions[$loss_idx]}
+task_id=$((task_id / num_loss))
+
+# Dropout
+do_idx=$((task_id % num_do))
+dropout=${dropouts[$do_idx]}
+task_id=$((task_id / num_do))
+
+
+rec_dropout=${recurrent_dropouts[$((task_id % num_rdo))]}
+task_id=$((task_id / num_rdo))
+units=${lstm_units[$((task_id % num_units))]}
+task_id=$((task_id / num_units))
+layers=${lstm_layers[$((task_id % num_layers))]}
+task_id=$((task_id / num_layers))
+bidir_setting=${bidirectional_flags[$((task_id % num_bidir))]}
+
+if [ "$bidir_setting" = "True" ]; then
+    bidir_arg="--bidirectional_layer"
+else
+    bidir_arg=""
+fi
+
+# --- Run the Experiment ---
+echo "--- Starting Job $SLURM_ARRAY_TASK_ID/$total_jobs ---"
+echo "Parameters: LR=$lr, OPT=$optimizer, BS=$batch_size, LOSS=$loss, DO=$dropout, RDO=$rec_dropout, UNITS=$units, LAYERS=$layers, BIDIR=$bidir_setting"
+
+python ./lfd_fp_lstm.py \
+    --embeddings /scratch/s4495845/LFD/FP/glove.twitter.27B.100d.txt \
     --learning_rate $lr \
-    --loss_function $loss \
     --optimizer $optimizer \
     --batch_size $batch_size \
-    --epochs 10 \
+    --loss_function $loss \
+    --epochs 15 \
     --dropout $dropout \
     --recurrent_dropout $rec_dropout \
     --lstm_units $units \
     --lstm_layers $layers \
-    --bidirectional_layer $bidir \
+    $bidir_arg \
     --verbose 0
 
-echo "Done with job $SLURM_ARRAY_TASK_ID"
+echo "--- Done with job $SLURM_ARRAY_TASK_ID ---"
 
 deactivate
